@@ -1,0 +1,16 @@
+# never commit these
+.venv/
+__pycache__/
+results/
+footprints_local.geojson
+*.geojson
+*.jpg
+*.png
+*.zip
+.env
+*.csv
+!addresses_example.csv
+
+*.pt
+weights/
+*_backup*.py

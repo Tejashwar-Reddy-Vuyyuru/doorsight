@@ -1,0 +1,6 @@
+requests
+pillow
+torch
+transformers
+ultralytics
+anthropic

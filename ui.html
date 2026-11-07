@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DoorSight</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--text:#e8eaf0;--muted:#8b93a7;
+        --high:#2ecc71;--medium:#f1c40f;--low:#e67e22;--side:#3498db;--none:#7f8c8d;--error:#e74c3c}
+  *{box-sizing:border-box} body{margin:0;font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);display:grid;grid-template-columns:380px 1fr;height:100vh}
+  aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+  header{padding:14px 16px;border-bottom:1px solid var(--line)} h1{margin:0;font-size:18px} h1 small{color:var(--muted);font-weight:400;margin-left:8px}
+  .box{padding:12px 16px;border-bottom:1px solid var(--line)}
+  textarea{width:100%;height:90px;background:#0c0e12;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px;font:13px monospace;resize:vertical}
+  button{background:#2d6cdf;color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer;font-weight:600} button.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+  .row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .tiers{display:flex;gap:6px;flex-wrap:wrap} .chip{padding:3px 8px;border-radius:12px;font-size:12px;font-weight:600;color:#000}
+  #list{flex:1;overflow:auto} .item{padding:10px 16px;border-bottom:1px solid var(--line);cursor:pointer} .item:hover{background:#1d2129}
+  .item .addr{font-weight:600} .item .why{color:var(--muted);font-size:12px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+  #map{height:100vh}
+  .ev img{max-width:220px;display:block;margin-top:4px;border-radius:4px}
+  .progress{height:6px;background:#0c0e12;border-radius:3px;overflow:hidden;margin-top:8px} .progress i{display:block;height:100%;background:#2d6cdf;width:0}
+  .muted{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<aside>
+  <header><h1>DoorSight <small>doors from street + aerial photos</small></h1></header>
+  <div class="box">
+    <textarea id="addrs" placeholder="One address per line, or paste a CSV with an 'address' column&#10;412 N Kirkwood Rd, Kirkwood, MO 63122"></textarea>
+    <div class="row">
+      <button onclick="run()">Run</button>
+      <label class="ghost" style="padding:8px 12px;border:1px solid var(--line);border-radius:6px;cursor:pointer">Upload CSV<input type="file" id="csv" accept=".csv,.txt" style="display:none" onchange="loadCsv(this)"></label>
+      <span id="status" class="muted"></span>
+    </div>
+    <div class="progress"><i id="bar"></i></div>
+  </div>
+  <div class="box">
+    <div class="tiers" id="counts"></div>
+    <div class="row">
+      <span class="muted">Export:</span>
+      <a class="ghost" href="/api/export?tiers=HIGH&fmt=csv"><button class="ghost">HIGH csv</button></a>
+      <a href="/api/export?tiers=HIGH&fmt=geojson"><button class="ghost">HIGH geojson</button></a>
+      <a href="/api/export?tiers=HIGH,MEDIUM&fmt=csv"><button class="ghost">HIGH+MED csv</button></a>
+    </div>
+  </div>
+  <div class="box">
+    <div class="row">
+      <button onclick="startReview('HIGH')">Review HIGH pins</button>
+      <button class="ghost" onclick="startReview('MEDIUM')">Review MEDIUM</button>
+      <span id="prec" class="muted"></span>
+    </div>
+  </div>
+  <div id="list"></div>
+</aside>
+<div id="review" style="display:none;position:fixed;right:0;top:0;width:420px;height:100vh;background:var(--panel);border-left:1px solid var(--line);padding:14px;overflow:auto;z-index:1000">
+  <div class="row" style="justify-content:space-between"><b id="rv_title"></b><button class="ghost" onclick="stopReview()">Close</button></div>
+  <div id="rv_addr" style="margin:8px 0;font-weight:600"></div>
+  <div id="rv_why" class="muted"></div>
+  <div id="rv_imgs" class="ev" style="margin:8px 0"></div>
+  <div class="row">
+    <button style="background:#2ecc71;color:#000" onclick="verdict('right')">Right (R)</button>
+    <button style="background:#e74c3c" onclick="verdict('wrong')">Wrong (W)</button>
+    <button class="ghost" onclick="verdict('unsure')">Unsure (U)</button>
+    <button class="ghost" onclick="nextReview(1)">Skip</button>
+  </div>
+  <div class="muted" style="margin-top:8px">Look at the pin on the satellite map (left) and the door photos: is this the main entrance of THIS address?</div>
+</div>
+<div id="map"></div>
+<script>
+const COLORS={HIGH:'#2ecc71',MEDIUM:'#f1c40f',LOW:'#e67e22',SIDE:'#3498db',NONE:'#7f8c8d',ERROR:'#e74c3c'};
+const map=L.map('map').setView([38.583,-90.407],13);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,attribution:'Esri World Imagery'}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,opacity:.9}).addTo(map);
+const layer=L.layerGroup().addTo(map); const markers={};
+let fitted=false;
+
+async function run(){
+  const text=document.getElementById('addrs').value;
+  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({addresses:text})});
+  const j=await r.json(); document.getElementById('status').textContent=j.error?j.error:`queued ${j.count}`;
+}
+function loadCsv(inp){const f=inp.files[0]; if(!f)return; f.text().then(t=>{document.getElementById('addrs').value=t;});}
+
+function popup(r){
+  let h=`<b>${r.address}</b><br><span style="color:${COLORS[r.tier]}">●</span> <b>${r.tier}</b> — ${r.why||''}`;
+  if(r.lat!=null) h+=`<br><code>${r.lat.toFixed(6)}, ${r.lng.toFixed(6)}</code>`;
+  if(r.error_m!=null) h+=`<br>error vs truth: ${r.error_m} m`;
+  h+='<div class="ev">';
+  (r.evidence||[]).forEach(e=>h+=`<img src="${e}">`);
+  if(r.aerial_img) h+=`<img src="${r.aerial_img}">`;
+  return h+'</div>';
+}
+
+async function refresh(){
+  const j=await (await fetch('/api/results')).json();
+  const list=document.getElementById('list'); list.innerHTML='';
+  const counts={}; const pts=[];
+  j.results.sort((a,b)=>a.address.localeCompare(b.address)).forEach(r=>{
+    counts[r.tier]=(counts[r.tier]||0)+1;
+    const d=document.createElement('div'); d.className='item';
+    d.innerHTML=`<span class="dot" style="background:${COLORS[r.tier]||'#999'}"></span><span class="addr">${r.address}</span><div class="why">${r.tier} — ${r.why||''}</div>`;
+    d.onclick=()=>{ if(markers[r.address]){map.setView(markers[r.address].getLatLng(),19);markers[r.address].openPopup();} };
+    list.appendChild(d);
+    if(r.lat!=null){
+      pts.push([r.lat,r.lng]);
+      if(!markers[r.address]){
+        markers[r.address]=L.circleMarker([r.lat,r.lng],{radius:8,color:'#000',weight:1,fillColor:COLORS[r.tier],fillOpacity:.95}).addTo(layer);
+      }
+      markers[r.address].setStyle({fillColor:COLORS[r.tier]}).bindPopup(popup(r),{maxWidth:260});
+    }
+  });
+  document.getElementById('counts').innerHTML=Object.entries(counts).map(([t,n])=>`<span class="chip" style="background:${COLORS[t]}">${t} ${n}</span>`).join('');
+  if(pts.length&&!fitted){map.fitBounds(pts,{padding:[40,40]});fitted=true;}
+  const jobs=Object.values(j.jobs); const running=jobs.filter(x=>x.status==='running');
+  if(running.length){const x=running[0];document.getElementById('status').textContent=`${x.done}/${x.total} — ${x.current||''}`;document.getElementById('bar').style.width=(100*x.done/x.total)+'%';}
+  else if(jobs.length){document.getElementById('status').textContent='idle';document.getElementById('bar').style.width='100%';}
+}
+let RV={list:[],i:0}; let LAST=null;
+function startReview(tier){
+  RV.list=(LAST?LAST.results:[]).filter(r=>r.tier===tier&&r.lat!=null).sort((a,b)=>a.address.localeCompare(b.address));
+  RV.i=RV.list.findIndex(r=>!r.verdict); if(RV.i<0)RV.i=0;
+  document.getElementById('review').style.display='block'; showReview();
+}
+function stopReview(){document.getElementById('review').style.display='none';}
+function showReview(){
+  const r=RV.list[RV.i]; if(!r){document.getElementById('rv_addr').textContent='Done — all reviewed.';return;}
+  document.getElementById('rv_title').textContent=`${r.tier} ${RV.i+1}/${RV.list.length}`;
+  document.getElementById('rv_addr').textContent=r.address+(r.verdict?`  [${r.verdict}]`:'');
+  document.getElementById('rv_why').textContent=r.why||'';
+  document.getElementById('rv_imgs').innerHTML=(r.evidence||[]).map(e=>`<img src="${e}" style="max-width:380px">`).join('')+(r.aerial_img?`<img src="${r.aerial_img}" style="max-width:380px">`:'');
+  map.setView([r.lat,r.lng],20); if(markers[r.address])markers[r.address].openPopup();
+}
+async function verdict(v){
+  const r=RV.list[RV.i]; if(!r)return;
+  const j=await (await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:r.address,verdict:v})})).json();
+  r.verdict=v; showPrecision(j.precision); nextReview(1);
+}
+function nextReview(d){RV.i=Math.min(RV.list.length,Math.max(0,RV.i+d)); showReview();}
+function showPrecision(p){
+  if(!p)return; const parts=[];
+  for(const t of ['HIGH','MEDIUM','LOW']){const d=p[t]; if(!d)continue; parts.push(`${t}: ${d.right}✓ ${d.wrong}✗ ${d.unsure}? of ${d.total}${d.precision!=null?' → '+d.precision+'%':''}`);}
+  document.getElementById('prec').textContent=parts.join('  |  ');
+}
+document.addEventListener('keydown',e=>{ if(document.getElementById('review').style.display!=='block')return;
+  if(e.key==='r'||e.key==='R')verdict('right'); if(e.key==='w'||e.key==='W')verdict('wrong'); if(e.key==='u'||e.key==='U')verdict('unsure'); });
+const _refresh=refresh;
+refresh=async function(){ const j=await (await fetch('/api/results')).json(); LAST=j; showPrecision(j.precision); await _refresh(); };
+refresh(); setInterval(refresh,3000);
+</script>
+</body>
+</html>
