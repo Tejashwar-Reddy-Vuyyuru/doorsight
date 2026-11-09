@@ -16,6 +16,19 @@ A geocoded address usually lands on the roof, not at the door a driver walks to.
 - **What "correct" means.** The pin is on the main door's side of the house and within about 5 m of it. Every shipped pin was hand-checked in Google Maps using rules fixed in advance.
 - **Honest bounds.** 23/23 on the clean test means precision is at least about 88% at 95% confidence (47/47 across tests 2 and 3: at least about 94%). Before the last fix, the worst result was 1 wrong out of 18.
 
+## Demo
+
+**Before:** the standard geocoded pin lands on the roof. **After:** DoorSight's verified pin sits at the main front door, where the walkway meets the house.
+
+| Before (geocode) | After (DoorSight) |
+|---|---|
+| ![House 1 before](docs/demo1_before.png) | ![House 1 after](docs/demo1_after.png) |
+| ![House 2 before](docs/demo2_before.png) | ![House 2 after](docs/demo2_after.png) |
+
+House 2 is a corner lot: the front door faces one street, and the pin lands on that side.
+
+*Map imagery: Google Maps (Imagery ©2026 Google and its data providers). Google and the Google logo are registered trademarks of Google LLC, used with permission. Screenshots are unaltered; addresses are not shown.*
+
 ## How it works
 
 ```
