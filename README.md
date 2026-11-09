@@ -16,6 +16,10 @@ A geocoded address usually lands on the roof, not at the door a driver walks to.
 - **What "correct" means.** The pin is on the main door's side of the house and within about 5 m of it. Every shipped pin was hand-checked in Google Maps using rules fixed in advance.
 - **Honest bounds.** 23/23 on the clean test means precision is at least about 88% at 95% confidence (47/47 across tests 2 and 3: at least about 94%). Before the last fix, the worst result was 1 wrong out of 18.
 
+### Compared with Google's entrance data
+
+On the 23 houses where DoorSight shipped a verified pin, Google's entrance API (Geocoding API v4, preview) returned an entrance for only **2 of 23**. Both were correct and matched DoorSight's pin within 4 m. DoorSight is meant to complement existing entrance data where it is missing, and to cross-check it where it exists. (One ZIP, one date; Google's coverage may grow. Script: `google_entrances.py`.)
+
 ## Demo
 
 **Before:** the standard geocoded pin lands on the roof. **After:** DoorSight's verified pin sits at the main front door, where the walkway meets the house.
@@ -59,6 +63,7 @@ The free stages do most of the work. The paid AI check runs only on the roughly 
 | `aerial.py` | Walkway/driveway side from aerial tiles |
 | `judge.py` | AI main-door check on HIGH pins, writes the hand-check checklist |
 | `regrade.py` | Re-grades saved results for free (no new photos) after a rule change |
+| `google_entrances.py` | Compares Google's entrance data with DoorSight's verified pins |
 | `make_addresses.py` | Random test sample of residential addresses in a ZIP |
 | `app.py`, `ui.html` | Local map viewer |
 
